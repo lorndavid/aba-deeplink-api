@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KHQR & ABA Deeplink Generator</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4 antialiased">
 
@@ -38,8 +39,8 @@
       </div>
 
       <div class="flex justify-center">
-        <div class="p-3 bg-white border border-slate-200 rounded-xl shadow-inner relative">
-          <img id="qr-image" src="" alt="ABA KHQR" class="w-56 h-56 object-contain">
+        <div class="p-3 bg-white border border-slate-200 rounded-xl shadow-inner relative flex items-center justify-center min-w-[240px] min-h-[240px]">
+          <div id="qr-canvas"></div>
           <div id="qr-loading" class="absolute inset-0 bg-white/90 flex items-center justify-center font-medium text-slate-500">
             Generating QR...
           </div>
@@ -61,15 +62,16 @@
   </div>
 
   <script>
-    // Relative path handles routing via Vercel infrastructure to remove CORS entirely
+    // Points directly to your Vercel Proxy Rewrite setup configured in vercel.json
     const API_BASE = "/api"; 
     let pollInterval = null;
+    let qrCodeInstance = null;
 
     const setupSection = document.getElementById('setup-section');
     const paymentSection = document.getElementById('payment-section');
     const amountInput = document.getElementById('amount');
     const generateBtn = document.getElementById('generate-btn');
-    const qrImage = document.getElementById('qr-image');
+    const qrCanvas = document.getElementById('qr-canvas');
     const qrLoading = document.getElementById('qr-loading');
     const abaDeeplink = document.getElementById('aba-deeplink');
     const statusBadge = document.getElementById('status-badge');
@@ -84,6 +86,7 @@
       qrLoading.classList.remove('hidden');
       paymentSection.classList.remove('hidden');
       setupSection.classList.add('hidden');
+      qrCanvas.innerHTML = ""; // Clear out any old QR codes from past requests
 
       try {
         const response = await fetch(`${API_BASE}/create-qr`, {
@@ -99,25 +102,32 @@
         const resData = await response.json();
         
         if (resData.status && resData.status.code === "00") {
-          // Safeguard: Upgrade image strings to secure https for iOS Safari
-          let secureQrUrl = resData.download_qr;
-          if (secureQrUrl.startsWith("http://")) {
-            secureQrUrl = secureQrUrl.replace("http://", "https://");
-          }
-          
-          qrImage.src = secureQrUrl;
-          qrImage.onload = () => qrLoading.classList.add('hidden');
-
           const rawQrString = resData.qr_string;
+
+          // Render the raw EMVCo KHQR data locally right inside Safari 
+          qrCodeInstance = new QRCode(qrCanvas, {
+            text: rawQrString,
+            width: 224,
+            height: 224,
+            colorDark: "#0f172a",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+          });
+
+          // Instantly hide the loading layout state indicator
+          qrLoading.classList.add('hidden');
+
+          // Assemble the explicit native Deep Link for ABA Mobile
           abaDeeplink.href = `abamobileapp://khqr?qr=${encodeURIComponent(rawQrString)}`;
 
+          // Initiate status checking routine loops
           startPolling(resData.status.tran_id, resData.client_id);
         } else {
-          throw new Error('API processing error');
+          throw new Error('API initialization processing error');
         }
       } catch (err) {
         console.error(err);
-        alert('Transaction failed. Resetting view.');
+        alert('Transaction failed to parse. Please check connectivity.');
         resetUI();
       }
     });
@@ -144,7 +154,7 @@
             }
           }
         } catch (e) {
-          console.error(e);
+          console.error("Status polling failed:", e);
         }
       }, 3000);
     }
@@ -162,7 +172,7 @@
       generateBtn.innerText = "Generate QR & Deeplink";
       paymentSection.classList.add('hidden');
       setupSection.classList.remove('hidden');
-      qrImage.src = "";
+      qrCanvas.innerHTML = "";
       abaDeeplink.href = "#";
       abaDeeplink.className = "inline-flex w-full items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white font-medium py-3 rounded-lg transition-all shadow-md transform active:scale-95";
       abaDeeplink.innerText = "Pay with ABA Mobile App";
