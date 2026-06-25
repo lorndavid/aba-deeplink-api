@@ -15,6 +15,7 @@
       <p class="text-sm text-slate-500 mt-1">Enter your amount to generate an instant payment link</p>
     </div>
 
+    <!-- Step 1: Input Section -->
     <div id="setup-section" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1">Amount (USD)</label>
@@ -31,8 +32,8 @@
       </button>
     </div>
 
+    <!-- Step 2: Payment Display Section -->
     <div id="payment-section" class="hidden space-y-6 mt-4 pt-4 border-t border-slate-100 text-center">
-      
       <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" id="status-badge">
         <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
         Waiting for payment...
@@ -47,6 +48,7 @@
         </div>
       </div>
 
+      <!-- Universal Link Button Wrapper -->
       <div class="space-y-2">
         <a id="aba-deeplink" href="#" class="inline-flex w-full items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white font-medium py-3 rounded-lg transition-all shadow-md transform active:scale-95">
           <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>
@@ -62,7 +64,6 @@
   </div>
 
   <script>
-    // Points directly to your Vercel Proxy Rewrite setup configured in vercel.json
     const API_BASE = "/api"; 
     let pollInterval = null;
     let qrCodeInstance = null;
@@ -86,7 +87,7 @@
       qrLoading.classList.remove('hidden');
       paymentSection.classList.remove('hidden');
       setupSection.classList.add('hidden');
-      qrCanvas.innerHTML = ""; // Clear out any old QR codes from past requests
+      qrCanvas.innerHTML = ""; 
 
       try {
         const response = await fetch(`${API_BASE}/create-qr`, {
@@ -104,7 +105,6 @@
         if (resData.status && resData.status.code === "00") {
           const rawQrString = resData.qr_string;
 
-          // Render the raw EMVCo KHQR data locally right inside Safari 
           qrCodeInstance = new QRCode(qrCanvas, {
             text: rawQrString,
             width: 224,
@@ -114,20 +114,18 @@
             correctLevel: QRCode.CorrectLevel.M
           });
 
-          // Instantly hide the loading layout state indicator
           qrLoading.classList.add('hidden');
 
-          // Assemble the explicit native Deep Link for ABA Mobile
-          abaDeeplink.href = `abamobileapp://khqr?qr=${encodeURIComponent(rawQrString)}`;
+          // FIXED: Uses standard universal routing scheme to prevent Safari address invalidations
+          abaDeeplink.href = `https://khqr.bakong.org.kh/checkout?qr=${encodeURIComponent(rawQrString)}`;
 
-          // Initiate status checking routine loops
           startPolling(resData.status.tran_id, resData.client_id);
         } else {
           throw new Error('API initialization processing error');
         }
       } catch (err) {
         console.error(err);
-        alert('Transaction failed to parse. Please check connectivity.');
+        alert('Transaction failed to parse.');
         resetUI();
       }
     });
