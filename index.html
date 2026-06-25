@@ -73,74 +73,79 @@
   <script>
     // Note: If you encounter a CORS pre-flight block, you can prepend a proxy server here:
     // "https://cors-anywhere.herokuapp.com/https://api.anajak.site/api"
-    const API_BASE = "https://api.anajak.site/api";
-    let pollInterval = null;
+    // 1. Force the request through a public CORS proxy to bypass iOS 18 Safari strict blocking
+  const API_BASE = "https://cors-anywhere.herokuapp.com/https://api.anajak.site/api";
+  let pollInterval = null;
 
-    // UI Elements
-    const setupSection = document.getElementById('setup-section');
-    const paymentSection = document.getElementById('payment-section');
-    const amountInput = document.getElementById('amount');
-    const generateBtn = document.getElementById('generate-btn');
-    const qrImage = document.getElementById('qr-image');
-    const qrLoading = document.getElementById('qr-loading');
-    const abaDeeplink = document.getElementById('aba-deeplink');
-    const statusBadge = document.getElementById('status-badge');
-    const cancelBtn = document.getElementById('cancel-btn');
+  // UI Elements
+  const setupSection = document.getElementById('setup-section');
+  const paymentSection = document.getElementById('payment-section');
+  const amountInput = document.getElementById('amount');
+  const generateBtn = document.getElementById('generate-btn');
+  const qrImage = document.getElementById('qr-image');
+  const qrLoading = document.getElementById('qr-loading');
+  const abaDeeplink = document.getElementById('aba-deeplink');
+  const statusBadge = document.getElementById('status-badge');
+  const cancelBtn = document.getElementById('cancel-btn');
 
-    // 1. Generate QR Routine
-    generateBtn.addEventListener('click', async () => {
-      const amount = parseFloat(amountInput.value);
-      if (isNaN(amount) || amount <= 0) return alert('Please enter a valid amount.');
+  // 1. Generate QR Routine
+  generateBtn.addEventListener('click', async () => {
+    const amount = parseFloat(amountInput.value);
+    if (isNaN(amount) || amount <= 0) return alert('Please enter a valid amount.');
 
-      // Prepare UI state
-      generateBtn.disabled = true;
-      generateBtn.innerText = "Processing...";
-      qrLoading.classList.remove('hidden');
-      paymentSection.classList.remove('hidden');
-      setupSection.classList.add('hidden');
+    // Prepare UI state
+    generateBtn.disabled = true;
+    generateBtn.innerText = "Processing...";
+    qrLoading.classList.remove('hidden');
+    paymentSection.classList.remove('hidden');
+    setupSection.classList.add('hidden');
 
-      try {
-        const response = await fetch(`${API_BASE}/create-qr`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            url: "https://link.payway.com.kh/ABAPAY0j459666x",
-            amount: amount.toFixed(2) // FIX: Formats number to strict string decimal structure "10.00"
-          })
-        });
+    try {
+      const response = await fetch(`${API_BASE}/create-qr`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          url: "https://link.payway.com.kh/ABAPAY0j459666x",
+          amount: amount.toFixed(2)
+        })
+      });
 
-        if (!response.ok) {
-          throw new Error(`Server returned status ${response.status}`);
-        }
-
-        const resData = await response.json();
-        
-        if (resData.status && resData.status.code === "00") {
-          // Display the QR Code image provided by the response payload
-          qrImage.src = resData.download_qr;
-          qrImage.onload = () => qrLoading.classList.add('hidden');
-
-          // Assemble the explicit ABA App native Deep Link using the raw KHQR string data
-          const rawQrString = resData.qr_string;
-          abaDeeplink.href = `abamobileapp://khqr?qr=${encodeURIComponent(rawQrString)}`;
-
-          // Extract transaction identifiers required to safely check status
-          const tranId = resData.status.tran_id;
-          const clientId = resData.client_id;
-
-          // Begin monitoring status
-          startPolling(tranId, clientId);
-        } else {
-          throw new Error('API creation failed processing body context');
-        }
-      } catch (err) {
-        console.error("Error occurred:", err);
-        alert('Error creating transaction. Resetting checkout. Look at browser console for details.');
-        resetUI();
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
       }
-    });
+
+      const resData = await response.json();
+      
+      if (resData.status && resData.status.code === "00") {
+        // iOS 18 Fix: Explicitly ensure the download image uses a secure https link
+        let secureQrUrl = resData.download_qr;
+        if (secureQrUrl.startsWith("http://")) {
+          secureQrUrl = secureQrUrl.replace("http://", "https://");
+        }
+        
+        qrImage.src = secureQrUrl;
+        qrImage.onload = () => qrLoading.classList.add('hidden');
+
+        // Assemble the explicit ABA App native Deep Link
+        const rawQrString = resData.qr_string;
+        abaDeeplink.href = `abamobileapp://khqr?qr=${encodeURIComponent(rawQrString)}`;
+
+        const tranId = resData.status.tran_id;
+        const clientId = resData.client_id;
+
+        // Begin monitoring status
+        startPolling(tranId, clientId);
+      } else {
+        throw new Error('API creation failed processing body context');
+      }
+    } catch (err) {
+      console.error("Error occurred:", err);
+      alert('To use this demo on iOS, please activate the CORS proxy temporary access link first. See instructions below.');
+      resetUI();
+    }
+  });
 
     // 2. Real-time Status Polling Loop
     function startPolling(tranId, clientId) {
