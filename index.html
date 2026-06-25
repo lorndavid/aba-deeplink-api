@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KHQR & ABA Deeplink Generator</title>
+  <!-- Tailwind CSS for modern look -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4 antialiased">
+
+  <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-100">
+    <!-- Header -->
+    <div class="text-center mb-6">
+      <h2 class="text-2xl font-bold text-slate-800">Quick Pay Checkout</h2>
+      <p class="text-sm text-slate-500 mt-1">Enter your amount to generate an instant payment link</p>
+    </div>
+
+    <!-- Step 1: Input Section -->
+    <div id="setup-section" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Amount (USD)</label>
+        <div class="relative rounded-lg shadow-sm">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <span class="text-slate-400 sm:text-sm">$</span>
+          </div>
+          <input type="number" id="amount" value="10.00" step="0.01" min="0.01" 
+                 class="block w-full pl-7 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-900 font-medium">
+        </div>
+      </div>
+      <button id="generate-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors shadow-sm">
+        Generate QR & Deeplink
+      </button>
+    </div>
+
+    <!-- Step 2: Payment Display Section (Hidden by Default) -->
+    <div id="payment-section" class="hidden space-y-6 mt-4 pt-4 border-t border-slate-100 text-center">
+      
+      <!-- Status Badge -->
+      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" id="status-badge">
+        <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+        Waiting for payment...
+      </div>
+
+      <!-- QR Code Image Container -->
+      <div class="flex justify-center">
+        <div class="p-3 bg-white border border-slate-200 rounded-xl shadow-inner relative">
+          <img id="qr-image" src="" alt="ABA KHQR" class="w-56 h-56 object-contain">
+          <!-- Loading Overlay -->
+          <div id="qr-loading" class="absolute inset-0 bg-white/90 flex items-center justify-center font-medium text-slate-500">
+            Generating QR...
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile Deeplink Button -->
+      <div class="space-y-2">
+        <a id="aba-deeplink" href="#" class="inline-flex w-full items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white font-medium py-3 rounded-lg transition-all shadow-md transform active:scale-95">
+          <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>
+          Pay with ABA Mobile App
+        </a>
+        <p class="text-[11px] text-slate-400">Tap above if you are checking out on your smartphone.</p>
+      </div>
+
+      <!-- Footer/Reset -->
+      <button id="cancel-btn" class="text-xs text-slate-400 hover:text-slate-600 transition-colors underline">
+        Cancel & Start Over
+      </button>
+    </div>
+  </div>
+
+  <!-- JavaScript Application Logic -->
+  <script>
+    // Note: If you encounter a CORS pre-flight block, you can prepend a proxy server here:
+    // "https://cors-anywhere.herokuapp.com/https://api.anajak.site/api"
+    const API_BASE = "https://api.anajak.site/api";
+    let pollInterval = null;
+
+    // UI Elements
+    const setupSection = document.getElementById('setup-section');
+    const paymentSection = document.getElementById('payment-section');
+    const amountInput = document.getElementById('amount');
+    const generateBtn = document.getElementById('generate-btn');
+    const qrImage = document.getElementById('qr-image');
+    const qrLoading = document.getElementById('qr-loading');
+    const abaDeeplink = document.getElementById('aba-deeplink');
+    const statusBadge = document.getElementById('status-badge');
+    const cancelBtn = document.getElementById('cancel-btn');
+
+    // 1. Generate QR Routine
+    generateBtn.addEventListener('click', async () => {
+      const amount = parseFloat(amountInput.value);
+      if (isNaN(amount) || amount <= 0) return alert('Please enter a valid amount.');
+
+      // Prepare UI state
+      generateBtn.disabled = true;
+      generateBtn.innerText = "Processing...";
+      qrLoading.classList.remove('hidden');
+      paymentSection.classList.remove('hidden');
+      setupSection.classList.add('hidden');
+
+      try {
+        const response = await fetch(`${API_BASE}/create-qr`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            url: "https://link.payway.com.kh/ABAPAY0j459666x",
+            amount: amount.toFixed(2) // FIX: Formats number to strict string decimal structure "10.00"
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned status ${response.status}`);
+        }
+
+        const resData = await response.json();
+        
+        if (resData.status && resData.status.code === "00") {
+          // Display the QR Code image provided by the response payload
+          qrImage.src = resData.download_qr;
+          qrImage.onload = () => qrLoading.classList.add('hidden');
+
+          // Assemble the explicit ABA App native Deep Link using the raw KHQR string data
+          const rawQrString = resData.qr_string;
+          abaDeeplink.href = `abamobileapp://khqr?qr=${encodeURIComponent(rawQrString)}`;
+
+          // Extract transaction identifiers required to safely check status
+          const tranId = resData.status.tran_id;
+          const clientId = resData.client_id;
+
+          // Begin monitoring status
+          startPolling(tranId, clientId);
+        } else {
+          throw new Error('API creation failed processing body context');
+        }
+      } catch (err) {
+        console.error("Error occurred:", err);
+        alert('Error creating transaction. Resetting checkout. Look at browser console for details.');
+        resetUI();
+      }
+    });
+
+    // 2. Real-time Status Polling Loop
+    function startPolling(tranId, clientId) {
+      if (pollInterval) clearInterval(pollInterval);
+
+      pollInterval = setInterval(async () => {
+        try {
+          const response = await fetch(`${API_BASE}/check-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tran_id: tranId, client_id: clientId })
+          });
+
+          const data = await response.json();
+
+          if (data.meta) {
+            const { qr_scanned, payment_approved, finished } = data.meta;
+
+            if (finished || payment_approved) {
+              clearInterval(pollInterval);
+              showSuccessState();
+            } else if (qr_scanned) {
+              statusBadge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200";
+              statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span> QR Code Scanned! Confirming...`;
+            }
+          }
+        } catch (e) {
+          console.error("Polling check failed:", e);
+        }
+      }, 3000); // Poll tracking every 3 seconds
+    }
+
+    // 3. UI State Transitions
+    function showSuccessState() {
+      statusBadge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200";
+      statusBadge.innerHTML = `✅ Payment Approved Successfully!`;
+      abaDeeplink.classList.add('pointer-events-none', 'opacity-50');
+      abaDeeplink.innerText = "Payment Completed";
+    }
+
+    function resetUI() {
+      if (pollInterval) clearInterval(pollInterval);
+      generateBtn.disabled = false;
+      generateBtn.innerText = "Generate QR & Deeplink";
+      paymentSection.classList.add('hidden');
+      setupSection.classList.remove('hidden');
+      qrImage.src = "";
+      abaDeeplink.href = "#";
+      abaDeeplink.className = "inline-flex w-full items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white font-medium py-3 rounded-lg transition-all shadow-md transform active:scale-95";
+      abaDeeplink.innerText = "Pay with ABA Mobile App";
+      statusBadge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200";
+      statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Waiting for payment...`;
+    }
+
+    cancelBtn.addEventListener('click', resetUI);
+  </script>
+</body>
+</html>
